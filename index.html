@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Clipped Video List Player</title>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        #progressBarContainer {
+            width: 560px;
+            height: 20px;
+            background-color: #f3f3f3;
+            margin-top: 10px;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        #progressBar {
+            height: 100%;
+            width: 0;
+            background-color: #4caf50;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #progressDetails {
+            margin-top: 10px;
+        }
+        #videoTitle {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>YouTube Clipped Video List Player</h1>
+    <textarea id="youtubeUrls" placeholder="Enter YouTube URLs, start time, and end time, title in format: URL(,starttime,endtime,title)&#13;&#10;(e.g., https://www.youtube.com/watch?v=VIDEO_ID,01:30,02:15,Title)" rows="10" cols="100" wrap="off"></textarea>
+    <br>
+    <button onclick="loadVideos()">Load Videos</button>
+    <input type="checkbox" id="randomOrder" checked="checked"> Random
+    <br><br>
+    <div id="videoContainer">
+        <div id="youtubePlayer"></div>
+        <div id="videoTitle"></div>
+    </div>
+    <br>
+    <button onclick="playVideo()">Play</button>
+    <button onclick="pauseVideo()">Pause</button>
+    <button onclick="prevVideo()">Previous Video</button>
+    <button onclick="nextVideo()">Next Video</button>
+    <div id="progressBarContainer">
+        <div id="progressBar"></div>
+    </div>
+    <div id="progressDetails">
+        <p id="timeInfo">0:00/0:00</p>
+    </div>
+
+    <script>
+        var player;
+        var progressBar;
+        var timeInfoDisplay;
+        var updateProgressBarInterval;
+        var videoQueue = [];
+        var currentVideoIndex = 0;
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('youtubePlayer', {
+                height: '315',
+                width: '560',
+                videoId: '',
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                },
+                playerVars: {
+                    'autoplay': 0,
+                    'controls': 1,
+                    'modestbranding': 1,
+                    'iv_load_policy': 3,
+                    'rel': 0
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            console.log("Player is ready.");
+            progressBar = document.getElementById('progressBar');
+            timeInfoDisplay = document.getElementById('timeInfo');
+        }
+
+        function extractVideoInfo(input) {
+            const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\s*,\s*(\d*:?\d{1,2}:\d{1,2})\s*,\s*(\d*:?\d{1,2}:\d{1,2})?(?:\s*,\s*(.+))?)?/;
+            const matches = input.match(regex);
+            if (matches) {
+                return {
+                    videoId: matches[1],
+                    startTime: parseTime(matches[2]),
+                    endTime: parseTime(matches[3]),
+                    title: matches[4] || null
+                };
+            }
+            return null;
+        }
+
+        function parseTime(timeString) {
+            if (!timeString) return 0;
+            const parts = timeString.split(':').map(parseFloat);
+            switch (parts.length) {
+                case 3:
+                    return parts[0] * 3600 + parts[1] * 60 + parts[2]; // HH:MM:SS
+                case 2:
+                    return parts[0] * 60 + parts[1]; // MM:SS
+                default:
+                    return 0;
+            }
+        }
+
+        function loadVideos() {
+            const inputs = document.getElementById('youtubeUrls').value.split('\n');
+            videoQueue = inputs.map(input => extractVideoInfo(input)).filter(info => info !== null);
+            if (document.getElementById('randomOrder').checked) {
+                shuffleArray(videoQueue);
+            }
+            currentVideoIndex = 0;
+            if (videoQueue.length > 0) {
+                loadVideo(videoQueue[currentVideoIndex]);
+            } else {
+                alert('No valid YouTube URLs found');
+            }
+        }
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+        
+        function loadVideo(videoInfo) {
+            const videoId = videoInfo.videoId;
+            const startTime = videoInfo.startTime;
+            const endTime = videoInfo.endTime;
+            const title = videoInfo.title;
+
+            // Check if the current video ID is the same as the loaded video
+            if (player.getPlayerState() === YT.PlayerState.PLAYING && player.getVideoData().video_id === videoId) {
+                // Only seek to the new start time if it's different from the current position
+                const currentTime = player.getCurrentTime();
+                if (startTime && Math.abs(currentTime - startTime) > 1) { // 1 second threshold to avoid seeking unnecessarily
+                    player.seekTo(startTime);
+                }
+            } else {
+                // Load the video if it's a different video ID
+                player.loadVideoById({
+                    videoId: videoId,
+                    startSeconds: startTime
+                });
+            }
+
+            resetProgressBar();
+
+            // Wait for a short delay before starting playback
+            setTimeout(function() {
+                playVideo();
+            }, 200); // 200 milliseconds delay
+
+            
+            setTimeout(function() {
+
+                // Display video title or custom title
+                const videoTitleDisplay = document.getElementById('videoTitle');
+                if (title !== null){
+                    videoTitleDisplay.textContent = title + " / " + player.getVideoData().title;
+                }
+                else{
+                    videoTitleDisplay.textContent = player.getVideoData().title;                
+                }
+            }, 1000); // 1000 milliseconds delay
+        }
+
+        function playVideo() {
+            player.playVideo();
+            startProgressBarUpdate();
+        }
+
+        function pauseVideo() {
+            player.pauseVideo();
+            stopProgressBarUpdate();
+        }
+
+        function startProgressBarUpdate() {
+            updateProgressBarInterval = setInterval(updateProgressBar, 1000);
+        }
+
+        function stopProgressBarUpdate() {
+            clearInterval(updateProgressBarInterval);
+        }
+
+        function updateProgressBar() {
+            const currentTime = player.getCurrentTime();
+            const duration = player.getDuration();
+            const videoInfo = videoQueue[currentVideoIndex];
+            const startTime = videoInfo.startTime;
+            const endTime = videoInfo.endTime || duration;
+
+            // console.log(endTime);
+            if (player.getPlayerState() === YT.PlayerState.PLAYING && currentTime >= endTime) {
+                // player.stopVideo();
+                pauseVideo();
+                nextVideo();
+            }
+
+            if (duration && startTime !== undefined && endTime !== undefined) {
+                const progressStartTime = startTime;
+                const progressEndTime = endTime;
+                const currentProgress = (currentTime - progressStartTime) / (progressEndTime - progressStartTime);
+                const percentage = currentProgress * 100;
+                progressBar.style.width = percentage + '%';
+
+                // Update progress details
+                const formatTime = (time) => {
+                    const minutes = Math.floor(time / 60);
+                    const seconds = Math.floor(time % 60);
+                    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                };
+                const currentTimeStr = formatTime(currentTime - startTime);
+                const remainingTimeStr = formatTime(endTime - startTime);
+                timeInfoDisplay.textContent = `${currentTimeStr}/${remainingTimeStr}`;
+            } else if (duration) {
+                const percentage = (currentTime / duration) * 100;
+                progressBar.style.width = percentage + '%';
+
+                // Update progress details
+                const formatTime = (time) => {
+                    const minutes = Math.floor(time / 60);
+                    const seconds = Math.floor(time % 60);
+                    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                };
+                const currentTimeStr = formatTime(currentTime);
+                const remainingTimeStr = formatTime(duration - currentTime);
+                timeInfoDisplay.textContent = `${currentTimeStr}/${remainingTimeStr}`;
+            }
+        }
+
+        function resetProgressBar() {
+            progressBar.style.width = '0%';
+            timeInfoDisplay.textContent = '0:00/0:00';
+        }
+
+        function onPlayerStateChange(event) {
+            if (event.data == YT.PlayerState.PLAYING) {
+                startProgressBarUpdate();
+            } else if (event.data == YT.PlayerState.ENDED) {
+                stopProgressBarUpdate();
+                pauseVideo();
+                nextVideo();
+            } else {
+                stopProgressBarUpdate();
+            }
+        }
+
+        function prevVideo() {
+            if (currentVideoIndex > 0) {
+                currentVideoIndex--;
+                loadVideo(videoQueue[currentVideoIndex]);
+                // Delay playVideo() by 200 milliseconds
+                setTimeout(function() {
+                    playVideo();
+                }, 200);
+            } else {
+                alert('This is the first video in the queue.');
+            }
+        }
+
+        function nextVideo() {
+            if (currentVideoIndex < videoQueue.length - 1) {
+                currentVideoIndex++;
+                loadVideo(videoQueue[currentVideoIndex]);
+                // Delay playVideo() by 200 milliseconds
+                setTimeout(function() {
+                    playVideo();
+                }, 200);
+            } else {
+                stopProgressBarUpdate(); // Stop progress bar update when reaching the end
+                player.stopVideo(); // Stop the video playback
+                //alert('All videos in the queue have been played.');
+            }
+        }
+    </script>
+</body>
+</html>
